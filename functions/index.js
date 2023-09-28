@@ -57,11 +57,9 @@ exports.ValidAdoptClearing2VD = onRequest(async (request, response) => {
     return;
   }
   const memberRef = db.doc(`/members/${instructing_agent}`);
-  console.log(`/members/${instructing_agent}`);
   const doc = await memberRef.get();
   if (doc.exists) {
     const agent_mops = doc.data().mops;
-    console.log(agent_mops);
     for (const curr_mop of agent_mops) {
       if (mop === curr_mop) {
         continue;
@@ -240,7 +238,7 @@ async function getClearingSoonestValueDate(mop) {
   const doc = await mopRef.get();
   if (doc.exists) {
     const business_date = getValueDate(doc.data());
-    console.log("Actuall Value Date" + business_date.format());
+    // console.log("Actuall Value Date" + business_date.format());
     return business_date;
   } else {
     console.log("ERROR: No Such mop document");
@@ -255,7 +253,7 @@ function getValueDate(working_time) {
   console.log("Business day before payment latency: " + value_date.format());
   for (let i = 0; i < payment_latency; i++) {
     value_date.add(1, 'days');
-    console.log("adding a day latency", value_date.format());
+    // console.log("adding a day latency", value_date.format());
     value_date = getBusinessDate(working_time, value_date);
   }
   console.log("Actuall Value Date: " + value_date.format());
@@ -272,20 +270,19 @@ function getBusinessDate(working_time, time) {
   if (false === isCutOffTime(working_time.cut_off, current_time)) {
     current_time.add(1, 'days');
     current_time.set({ hour: 8, minute: 0, second: 0, millisecond: 0 });
-    console.log("adding a day cut off", current_time.format());
+    // console.log("adding a day cut off", current_time.format());
   }
-  console.log("After CutOff check:" + current_time.format());
+  // console.log("After CutOff check:" + current_time.format());
   while (isHoliday(working_time.holidays, current_time) || isWeekend(current_time)) {
     current_time.add(1, 'days');
-    console.log("adding a day weekend holiday", current_time.format());
+    // console.log("adding a day weekend holiday", current_time.format());
   }
   return current_time;
 }
 //validates if we are pass the cut off time
 function isCutOffTime(cut_off, current_time) {
-  console.log("!!!!"+cut_off);
   const mop_cut_off = moment(current_time).tz("Europe/Berlin").set({ hour: cut_off.hours, minute: cut_off.minutes, second: 0, millisecond: 0 });
-  console.log("test" + current_time.format() + mop_cut_off.format())
+  // console.log("test" + current_time.format() + mop_cut_off.format())
   return current_time < mop_cut_off;
 }
 
@@ -299,13 +296,13 @@ function isHoliday(holidays, current_time) {
       is_holiday = true;
     }
   });
-  console.log("Is hoiday:" + is_holiday);
+  // console.log("Is hoiday:" + is_holiday);
   return is_holiday;
 }
 //validates if this specidic date is a weekend day
 function isWeekend(current_time) {
   const weekday = current_time.weekday();
-  console.log("Is weekend: " + (weekday == MOMENT_SATURDAY || weekday == MOMENT_SUNDAY));
+  // console.log("Is weekend: " + (weekday == MOMENT_SATURDAY || weekday == MOMENT_SUNDAY));
 
   return weekday == MOMENT_SATURDAY || weekday == MOMENT_SUNDAY;
 }
