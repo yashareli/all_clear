@@ -18,7 +18,6 @@ const CURRNECY_KEY = 'currency';
 
 admin.initializeApp();
 
-
 //validates Mop,VD tuple follows the rules 
 //validates both Instructing Agent & instructed Agent are members of this MOP
 //validates this MOP supports the specific currency and min, max amounts are kept
