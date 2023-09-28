@@ -32,6 +32,55 @@ exports.CheckInputForClearing = onRequest(async (request, response) => {
   const currency = request.body.currency;
   const amount = request.body.amount;
 
+  body['valid'] = true;
+  await validateTransaction(mop, value_date, instructing_agent, instructed_agent, currency, amount, body);
+
+  response.status(200).send(body);
+});
+
+//Validates the input and in case of error looks for MOP that can fulfill the transaction
+exports.ValidAdoptClearing2VD = onRequest(async (request, response) => {
+  const db = admin.firestore();
+
+  const body = {};
+  const mop = request.body.mop;
+  const value_date = request.body.value_date;
+  const instructing_agent = request.body.instructing_agent;
+  const instructed_agent = request.body.instructed_agent;
+  const currency = request.body.currency;
+  const amount = request.body.amount;
+
+  body['valid'] = true;
+  const mopRef = db.doc(`/members/${instructing_agent}`);
+  const doc = await mopRef.get();
+  if (doc.exists) {
+    const agent_mops = doc.data().mops;
+    await validateTransaction(mop, value_date, instructing_agent, instructed_agent, currency, amount, body);
+    if (body['valid']) {
+      response.status(200).send(body);
+      return;
+    }
+    for (const curr_mop of agent_mops) {
+      if (mop === curr_mop) {
+        continue;
+      }
+      body['valid'] = true;
+      await validateTransaction(curr_mop, value_date, instructing_agent, instructed_agent, currency, amount, body);
+      if (body['valid']) {
+        body['valid'] = false;
+        body['suggestion'] = "MOP is updated from: " +mop + "To: " + curr_mop;
+        response.status(200).send(body);
+      }
+    }
+  } else {
+    console.log("ERROR: No Such mop document");
+  }
+
+});
+
+//function that validates the user input to check the validity of the transaction
+async function validateTransaction(mop, value_date, instructing_agent, instructed_agent, currency, amount, body) {
+
   //value date validity check
   if (value_date !== undefined) {
     const recieved_value_date = moment(new Date(value_date)).tz("Europe/Berlin");
@@ -43,9 +92,11 @@ exports.CheckInputForClearing = onRequest(async (request, response) => {
       body['value_date_valid'] = (recieved_value_date.dayOfYear() == actual_value_date.dayOfYear());
     } else {
       console.log("ERROR: something went wrong, check logs");
+      body['valid'] = false;
     }
   } else {
     body['value_date'] = "Value Date wasnt injected"
+    body['valid'] = false;
   }
   //validate both agents are members of the MOP
   if (instructing_agent !== undefined && instructed_agent !== undefined) {
@@ -57,9 +108,11 @@ exports.CheckInputForClearing = onRequest(async (request, response) => {
     } else {
       console.log("both agents are not members of this MOP");
       body['agents_members'] = "both agents are not members of this MOP";
+      body['valid'] = false;
     }
   } else {
     body['agents_members'] = "Instructing and Instructed Agents werent injected"
+    body['valid'] = false;
   }
 
   if (currency !== undefined && amount !== undefined) {
@@ -74,19 +127,21 @@ exports.CheckInputForClearing = onRequest(async (request, response) => {
       } else {
         console.log("Amount Is NOT Supported by this MOP");
         body['amount'] = "Amount Is NOT Supported by this MOP";
+        body['valid'] = false;
       }
     } else {
       console.log("Currency Is NOT Supported by this MOP");
       body['currency'] = "Currency Is NOT Supported by this MOP";
+      body['valid'] = false;
     }
   }
-
-  response.status(200).send(body);
-});
+}
 
 //Provides the soonest business date, input is MOP
 exports.ProvideClearngBusinessDate = onRequest(async (request, response) => {
   const body = {};
+  body['valid'] = true;
+
   const mop = request.body.mop;
   const db = admin.firestore();
   const mopRef = db.doc(`/mops/${mop}/working_time/data`);
@@ -98,28 +153,21 @@ exports.ProvideClearngBusinessDate = onRequest(async (request, response) => {
   } else {
     console.log("ERROR: No Such mop document");
     body['clearing_business_date'] = "ERROR: Something Went Wrong"
+    body['valid'] = false;
   }
   response.status(200).send(body);
 });
-
+//returns the soonest Value date for this MOP
 exports.ProvideClearngSoonestVD = onRequest(async (request, response) => {
   const mop = request.body.mop;
   const body = {};
+  body['valid'] = true;
+
   const value_date = await getClearingSoonestValueDate(mop);
   if (value_date !== null) {
     body['value_date'] = "Soonest Value Date: " + value_date.format();
   } else {
-    console.log("ERROR: something went wrong, check logs");
-  }
-  response.status(200).send(body);
-});
-exports.ValidAdoptClearing2VD = onRequest(async (request, response) => {
-  const mop = request.body.mop;
-  const body = {};
-  const value_date = await getClearingSoonestValueDate(mop);
-  if (value_date !== null) {
-    body['value_date'] = "Soonest Value Date: " + value_date.format();
-  } else {
+    body['valid'] = false;
     console.log("ERROR: something went wrong, check logs");
   }
   response.status(200).send(body);
