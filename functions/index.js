@@ -8,17 +8,21 @@
  */
 
 const { onRequest } = require("firebase-functions/v2/https");
-const logger = require("firebase-functions/logger");
 const admin = require('firebase-admin');
 const moment = require('moment-timezone');
-const { RESET_VALUE } = require("firebase-functions/v1");
+const logger = require("firebase-functions/logger");
+
 const MOMENT_SUNDAY = 0;
 const MOMENT_SATURDAY = 6;
 const CURRNECY_KEY = 'currency ';
 
 admin.initializeApp();
 
-exports.helloWorld = onRequest(async (request, response) => {
+
+//validates Mop,VD tuple follows the rules 
+//validates both Instructing Agent & instructed Agent are members of this MOP
+//validates this MOP supports the specific currency and min, max amounts are kept
+exports.CheckInputForClearing = onRequest(async (request, response) => {
   // logger.info("Hello logs!", {structuredData: request.body});
   const body = {};
   const mop = request.body.mop;
@@ -31,7 +35,7 @@ exports.helloWorld = onRequest(async (request, response) => {
   //value date validity check
   if (value_date !== undefined) {
     const recieved_value_date = moment(new Date(value_date)).tz("Europe/Berlin");
-    const actual_value_date = await checkClearingVD(mop);
+    const actual_value_date = await getClearingSoonestValueDate(mop);
     body['value_date'] = actual_value_date;
 
     if (actual_value_date !== null) {
@@ -42,7 +46,6 @@ exports.helloWorld = onRequest(async (request, response) => {
     }
   } else {
     body['value_date'] = "Value Date wasnt injected"
-
   }
   //validate both agents are members of the MOP
   if (instructing_agent !== undefined && instructed_agent !== undefined) {
@@ -81,6 +84,48 @@ exports.helloWorld = onRequest(async (request, response) => {
   response.status(200).send(body);
 });
 
+//Provides the soonest business date, input is MOP
+exports.ProvideClearngBusinessDate = onRequest(async (request, response) => {
+  const body = {};
+  const mop = request.body.mop;
+  const db = admin.firestore();
+  const mopRef = db.doc(`/mops/${mop}/working_time/data`);
+  const doc = await mopRef.get();
+  if (doc.exists) {
+    const business_date = await getBusinessDate(doc.data());
+    console.log("Clearing Business Date" + business_date.format());
+    body['clearing_business_date'] = business_date.format();
+  } else {
+    console.log("ERROR: No Such mop document");
+    body['clearing_business_date'] = "ERROR: Something Went Wrong"
+  }
+  response.status(200).send(body);
+});
+
+exports.ProvideClearngSoonestVD = onRequest(async (request, response) => {
+  const mop = request.body.mop;
+  const body = {};
+  const value_date = await getClearingSoonestValueDate(mop);
+  if (value_date !== null) {
+    body['value_date'] = "Soonest Value Date: " + value_date.format();
+  } else {
+    console.log("ERROR: something went wrong, check logs");
+  }
+  response.status(200).send(body);
+});
+exports.ValidAdoptClearing2VD = onRequest(async (request, response) => {
+  const mop = request.body.mop;
+  const body = {};
+  const value_date = await getClearingSoonestValueDate(mop);
+  if (value_date !== null) {
+    body['value_date'] = "Soonest Value Date: " + value_date.format();
+  } else {
+    console.log("ERROR: something went wrong, check logs");
+  }
+  response.status(200).send(body);
+});
+
+//checks if the entered currecy is supported by this mop
 async function isCurrencySupported(mop, currency) {
   const db = admin.firestore();
   const mopRef = db.doc(`/mops/${mop}`);
@@ -95,7 +140,7 @@ async function isCurrencySupported(mop, currency) {
   }
   return false;
 }
-
+//checks if the entered amount is in the range of the min & max amounts of this MOP
 async function amountInRange(mop, amount) {
   const db = admin.firestore();
   const mopRef = db.doc(`/mops/${mop}`);
@@ -110,6 +155,7 @@ async function amountInRange(mop, amount) {
   return false;
 }
 
+//checks if the instructing_agent && instructed_agent are members of this MOP
 async function areMopMembers(mop, instructing_agent, instructed_agent) {
 
   let members_count = 0;
@@ -130,7 +176,8 @@ async function areMopMembers(mop, instructing_agent, instructed_agent) {
   return members_count == 2;
 }
 
-async function checkClearingVD(mop) {
+//returns this MOP Soonest Value date 
+async function getClearingSoonestValueDate(mop) {
 
   const db = admin.firestore();
   const mopRef = db.doc(`/mops/${mop}/working_time/data`);
@@ -145,6 +192,7 @@ async function checkClearingVD(mop) {
   return null;
 };
 
+//Calculates the value date of a MOP working time
 function getValueDate(working_time) {
   const payment_latency = working_time.payment_latency;
   let value_date = getBusinessDate(working_time);
@@ -157,6 +205,8 @@ function getValueDate(working_time) {
   console.log("Actuall Value Date: " + value_date.format());
   return value_date;
 }
+
+//gets the "current" business date
 function getBusinessDate(working_time, time) {
   let current_time = time;
   if (current_time === undefined) {
@@ -175,13 +225,14 @@ function getBusinessDate(working_time, time) {
   }
   return current_time;
 }
-
+//validates if we are pass the cut off time
 function isCutOffTime(cut_off, current_time) {
   const mop_cut_off = moment(current_time).tz("Europe/Berlin").set({ hour: cut_off.hours, minute: cut_off.minutes, second: 0, millisecond: 0 });
   // console.log("test" + current_time.format() + mop_cut_off.format())
   return current_time < mop_cut_off;
 }
 
+//validates if this specidic date is a holiday
 function isHoliday(holidays, current_time) {
 
   let is_holiday = false;
@@ -194,23 +245,13 @@ function isHoliday(holidays, current_time) {
   // console.log("Is hoiday:" + is_holiday);
   return is_holiday;
 }
-
+//validates if this specidic date is a weekend day
 function isWeekend(current_time) {
   const weekday = current_time.weekday();
   // console.log("Is weekend: " + (weekday == MOMENT_SATURDAY || weekday == MOMENT_SUNDAY));
 
   return weekday == MOMENT_SATURDAY || weekday == MOMENT_SUNDAY;
 }
-
-//validates Mop,VD tuple follows the rules 
-//validates both Instructing Agent & instructed Agent are members of this MOP
-//validates this MOP supports the specific currency and min, max amounts are kept
-exports.CheckInputForClearing = onRequest((request, response) => {
-  // logger.info("CheckInputForClearing logs!", {request.body});
-
-  response.send("Hello from Eli!");
-});
-
 
 // logger.info("Hello logs!", mop + "," + value_date + "," +instructing_agent + "," + instructed_agent + "," +currency + "," +amount);
 // response.status(200).send(mop + "," + value_date + "," +instructing_agent + "," + instructed_agent + "," +currency + "," +amount);
